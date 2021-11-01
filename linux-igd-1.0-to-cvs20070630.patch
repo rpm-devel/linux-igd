@@ -1,0 +1,452 @@
+diff -uNr linuxigd-1.0/CHANGES linuxigd-1.0-patch/CHANGES
+--- linuxigd-1.0/CHANGES	2007-02-08 09:05:49.000000000 +0900
++++ linuxigd-1.0-patch/CHANGES	2008-01-18 03:31:32.000000000 +0900
+@@ -1,3 +1,56 @@
++2007-06-30 Magnus Hyllander <mhyllander@users.sourceforge.net>
++  * Added the listenport option, which lets you select which UPnP port
++    to listen to. The port number is passed to UpnpInit when
++    initializing the UPnP library. This is useful if you are running
++    several UPnP services on your firewall, and only specific ports
++    have been opened. Gmediaserver has this option also, for example.
++
++  * Renamed the insert_forward_rules option to create_forward_rules to
++    better reflect what it actually does. Fixed the erroneous
++    description of the option.
++
++  * Added the forward_rules_append to do what people thought
++    insert_forward_rules did, i.e. control whether to append or insert
++    rules in the forward chain. The option description also includes a
++    tip about what to do if neither insert or append is what you
++    need.
++
++  * Fixed pmlist_AddPortMapping. It was doing different things when
++    using iptables or iptc to create rules. The iptc method was
++    inserting in the forward chain and appending to the prerouting
++    chain, while the iptables method was doing the opposite. Now both
++    methods append to the prerouting chain, and forward_rules_append
++    controls whether to insert or append to the forward chain.
++    
++  * Added trace output when using iptc to add and delete rules
++    (for debug_mode=3).
++
++  * Fixed the parsing of the create_forward_rules and
++    forward_rules_append options. The regular expression just wouldn't
++    take "no" for an answer :-)
++
++2007-04-23 Rosfran Borges <rosfran@gmail.com>
++  * Removed unused files on the linux-igd_autotools version.
++
++2007-03-26 Rosfran Borges <rosfran@gmail.com>
++  * Created the CVS tag 'linux-igd_autotools', to add all the automake/autotools
++    related issues.
++
++  * Fixed some installation issues, regarding lib-installing to the
++    correct directory, and copying the header files to the destination
++    dir (make install).
++ 
++  * Put 'pkg-config' resource to the Linux IGD library. The name of the
++    PKG-CONFIG resource is 'linux-igd', plus the minor and major version.
++    Actually, the version is '0.1', so the library config file is:
++    'linux-igd-0.1.pc'. You can type: 'pkg-config --cflags --libs
++    linux-igd-0.1'.
++
++  * Many adjustments in the automake/autoconf configuration files
++    (configure.ac, Makefile.am) - some autotools misusage fixed.
++
++  * Fixed some library dependencies.
++
+ 2007-02-07 Daniel J Blueman <daniel.blueman@gmail.com>
+   * Fixed interface statistics gathering and streamlined
+     into a single function.
+diff -uNr linuxigd-1.0/Makefile linuxigd-1.0-patch/Makefile
+--- linuxigd-1.0/Makefile	2006-05-24 07:16:36.000000000 +0900
++++ linuxigd-1.0-patch/Makefile	2008-01-18 03:31:32.000000000 +0900
+@@ -27,7 +27,7 @@
+ 	@echo "make $@ finished on `date`"
+ 
+ %.o:	%.c
+-	$(CC) $(CFLAGS) $(INCLUDES) -c $<
++	$(CC) $(CFLAGS) $(INCLUDES) -D_GNU_SOURCE -c $<
+ 
+ clean:
+ 	rm -f *.o upnpd
+diff -uNr linuxigd-1.0/config.c linuxigd-1.0-patch/config.c
+--- linuxigd-1.0/config.c	2006-11-13 00:38:46.000000000 +0900
++++ linuxigd-1.0-patch/config.c	2008-01-18 03:31:32.000000000 +0900
+@@ -9,7 +9,7 @@
+ 
+ int getConfigOptionArgument(char var[],int varlen, char line[], regmatch_t *submatch) 
+ {
+-    /* bound buffer operations to varlen - 1 */
++    /* limit buffer operations to varlen - 1 */
+     int match_length = min(submatch[1].rm_eo-submatch[1].rm_so, varlen - 1);
+ 
+     strncpy(var,&line[submatch[1].rm_so],match_length);
+@@ -25,7 +25,7 @@
+   char num[NUM_LEN];
+   char *p;
+ 
+-  /* bound buffer operations to NUM_LEN - 1 */
++  /* limit buffer operations to NUM_LEN - 1 */
+   unsigned int len = min(submatch[2].rm_eo-submatch[2].rm_so, NUM_LEN - 1);
+ 
+   strncpy(num, &line[submatch[2].rm_so], len);
+@@ -52,7 +52,8 @@
+     regex_t re_empty_row;
+     regex_t re_iptables_location;
+     regex_t re_debug_mode;
+-    regex_t re_insert_forward_rules_yes;
++    regex_t re_create_forward_rules;
++    regex_t re_forward_rules_append;
+     regex_t re_forward_chain_name;
+     regex_t re_prerouting_chain_name;
+     regex_t re_upstream_bitrate;
+@@ -60,10 +61,12 @@
+     regex_t re_duration;
+     regex_t re_desc_doc;
+     regex_t re_xml_path;
++    regex_t re_listenport;
+ 
+     // Make sure all vars are 0 or \0 terminated
+     vars->debug = 0;
+-    vars->forwardRules = 0;
++    vars->createForwardRules = 0;
++    vars->forwardRulesAppend = 0;
+     strcpy(vars->iptables,"");
+     strcpy(vars->forwardChainName,"");
+     strcpy(vars->preroutingChainName,"");
+@@ -72,6 +75,7 @@
+     vars->duration = DEFAULT_DURATION;
+     strcpy(vars->descDocName,"");
+     strcpy(vars->xmlPath,"");
++    vars->listenport = 0;
+ 
+     // Regexp to match a comment line
+     regcomp(&re_comment,"^[[:blank:]]*#",0);
+@@ -80,14 +84,16 @@
+     // Regexps to match configuration file settings
+     regcomp(&re_iptables_location,"iptables_location[[:blank:]]*=[[:blank:]]*\"([^\"]+)\"",REG_EXTENDED);
+     regcomp(&re_debug_mode,"debug_mode[[:blank:]]*=[[:blank:]]*([[:digit:]])",REG_EXTENDED);
+-    regcomp(&re_insert_forward_rules_yes,"insert_forward_rules[[:blank:]]*=[[:blank:]]*yes",REG_ICASE);
+     regcomp(&re_forward_chain_name,"forward_chain_name[[:blank:]]*=[[:blank:]]*([[:alpha:]_-]+)",REG_EXTENDED);
+     regcomp(&re_prerouting_chain_name,"prerouting_chain_name[[:blank:]]*=[[:blank:]]([[:alpha:]_-]+)",REG_EXTENDED);
++    regcomp(&re_create_forward_rules,"create_forward_rules[[:blank:]]*=[[:blank:]]*(yes|no)",REG_EXTENDED);
++    regcomp(&re_forward_rules_append,"forward_rules_append[[:blank:]]*=[[:blank:]]*(yes|no)",REG_EXTENDED);
+     regcomp(&re_upstream_bitrate,"upstream_bitrate[[:blank:]]*=[[:blank:]]*([[:digit:]]+)",REG_EXTENDED);
+     regcomp(&re_downstream_bitrate,"downstream_bitrate[[:blank:]]*=[[:blank:]]*([[:digit:]]+)",REG_EXTENDED);
+-    regcomp(&re_duration,"duration[[:blank:]]*=[[:blank:]]*(@?)([[:digit:]]+|[[:digit:]]+{2}:[[:digit:]]+{2})",REG_EXTENDED);
++    regcomp(&re_duration,"duration[[:blank:]]*=[[:blank:]]*(@?)([[:digit:]]+|[[:digit:]]{2,}:[[:digit:]]{2})",REG_EXTENDED);
+     regcomp(&re_desc_doc,"description_document_name[[:blank:]]*=[[:blank:]]*([[:alpha:].]{1,20})",REG_EXTENDED);
+     regcomp(&re_xml_path,"xml_document_path[[:blank:]]*=[[:blank:]]*([[:alpha:]_/.]{1,50})",REG_EXTENDED);
++    regcomp(&re_listenport,"listenport[[:blank:]]*=[[:blank:]]*([[:digit:]]+)",REG_EXTENDED);
+ 
+     if ((conf_file=fopen(CONF_FILE,"r")) != NULL)
+     {
+@@ -104,11 +110,19 @@
+ 		{
+ 		  getConfigOptionArgument(vars->iptables, PATH_LEN, line, submatch);
+ 		}
+-		
+-		// Check is insert_forward_rules
+-		else if (regexec(&re_insert_forward_rules_yes,line,0,NULL,0) == 0)
++		// Check if create_forward_rules
++		else if (regexec(&re_create_forward_rules,line,NMATCH,submatch,0) == 0)
+ 		{
+-		    vars->forwardRules = 1;
++		  char tmp[4];
++		  getConfigOptionArgument(tmp,sizeof(tmp),line,submatch);
++		  vars->createForwardRules = strcmp(tmp,"yes")==0 ? 1 : 0;
++		}
++		// Check if forward_rules_append
++		else if (regexec(&re_forward_rules_append,line,NMATCH,submatch,0) == 0)
++		{
++		  char tmp[4];
++		  getConfigOptionArgument(tmp,sizeof(tmp),line,submatch);
++		  vars->forwardRulesAppend = strcmp(tmp,"yes")==0 ? 1 : 0;
+ 		}
+ 		// Check forward_chain_name
+ 		else if (regexec(&re_forward_chain_name,line,NMATCH,submatch,0) == 0)
+@@ -145,10 +159,16 @@
+ 		{
+ 		  getConfigOptionArgument(vars->xmlPath, PATH_LEN, line, submatch);
+ 		}
++		else if (regexec(&re_listenport,line,NMATCH,submatch,0) == 0)
++		{
++		  char tmp[6];
++		  getConfigOptionArgument(tmp,sizeof(tmp),line,submatch);
++		  vars->listenport = atoi(tmp);
++		}
+ 		else
+ 		{
+ 		    // We end up here if ther is an unknown config directive
+-		    printf("Unknown config line:%s",line);
++		    printf("Unknown config line: %s",line);
+ 		}
+ 	    }
+ 	}
+@@ -158,7 +178,8 @@
+     regfree(&re_empty_row);
+     regfree(&re_iptables_location);
+     regfree(&re_debug_mode);	
+-    regfree(&re_insert_forward_rules_yes);	
++    regfree(&re_create_forward_rules);	
++    regfree(&re_forward_rules_append);	
+     regfree(&re_forward_chain_name);
+     regfree(&re_prerouting_chain_name);
+     regfree(&re_upstream_bitrate);
+@@ -166,6 +187,7 @@
+     regfree(&re_duration);
+     regfree(&re_desc_doc);
+     regfree(&re_xml_path);
++    regfree(&re_listenport);
+     // Set default values for options not found in config file
+     if (strnlen(vars->forwardChainName, CHAIN_NAME_LEN) == 0)
+     {
+diff -uNr linuxigd-1.0/etc/upnpd.conf linuxigd-1.0-patch/etc/upnpd.conf
+--- linuxigd-1.0/etc/upnpd.conf	2006-08-17 03:19:30.000000000 +0900
++++ linuxigd-1.0-patch/etc/upnpd.conf	2008-01-18 03:31:32.000000000 +0900
+@@ -17,17 +17,34 @@
+ debug_mode = 2
+ 
+ #
+-# Should the daemon insert rules in the forward chain
++# Should the daemon create rules in the forward chain, or not.
+ # This is necessary if your firewall has a drop or reject
+ # policy in your forward chain.
+ # allowed values: yes,no
+ # default = no
+-insert_forward_rules = yes
++create_forward_rules = yes
++
++#
++# Should the daemon insert or append rules in the forward chain.
++# Normally you will want to insert rules at the beginning of the
++# forward chain, so that they apply before any drop or reject rules
++# later in the chain.
++# This option only applies if "create_forward_rules = yes".
++# 
++# Tip: If you need to insert rules somewhere in the middle of the
++# FORWARD chain, instead of first or last, then you should create a
++# new empty chain, e.g forwardUPnP, and set forward_chain_name to that
++# chain. Then insert a rule to jump to forwardUPnP in the appropriate
++# place in the FORWARD chain. (The value of forward_rules_append
++# probably won't matter much in that case.)
++# 
++# allowed values: yes,no
++# default = no
++forward_rules_append = no
+ 
+ #
+ # The name of the chain to put the forward rules in.
+-# This directive is only activ if "insert_forward_rules = yes"
+-# above.
++# This option only applies if "create_forward_rules = yes".
+ # allowed values: a-z, A-Z, _, -
+ # default = FORWARD
+ #
+@@ -73,3 +90,7 @@
+ # you have to make sure the xml docs are in the
+ # right place
+ xml_document_path = /etc/linuxigd
++
++# The UPnP port to listen on.
++# default = 0 (first free UPnP port, starting with 49152)
++listenport = 0
+diff -uNr linuxigd-1.0/globals.h linuxigd-1.0-patch/globals.h
+--- linuxigd-1.0/globals.h	2006-11-13 02:14:11.000000000 +0900
++++ linuxigd-1.0-patch/globals.h	2008-01-18 03:31:32.000000000 +0900
+@@ -26,17 +26,21 @@
+   char downstreamBitrate[BITRATE_LEN]; // The downstream bitrate reported by the daemon
+   char forwardChainName[CHAIN_NAME_LEN];  // The name of the iptables chain to put FORWARD rules in
+   char preroutingChainName[CHAIN_NAME_LEN]; // The name of the chain to put PREROUTING rules in
+-  int forwardRules;     // 1 - forward rules are inserted
+-                          // 0 - no forward rules inserted
++  int createForwardRules;     // 1 - create rules in forward chain
++                              // 0 - do not create rules in forward chain
++  int forwardRulesAppend; // 1 - add rules to end of forward chain
++  			  // 0 - add rules to start of forward chain
+   long int duration;    // 0 - no duration
+                           // >0 - duration in seconds
+                           // <0 - expiration time 
+   char descDocName[PATH_LEN];
+   char xmlPath[PATH_LEN];
++  int listenport;	//The port to listen on
+ };
+ 
+ typedef struct GLOBALS* globals_p;
+-extern struct GLOBALS g_vars;
++typedef struct GLOBALS globals;
++extern globals g_vars;
+ 
+ #define CONF_FILE "/etc/upnpd.conf"
+ #define MAX_CONFIG_LINE 256
+diff -uNr linuxigd-1.0/main.c linuxigd-1.0-patch/main.c
+--- linuxigd-1.0/main.c	2006-07-26 05:45:13.000000000 +0900
++++ linuxigd-1.0-patch/main.c	2008-01-18 03:31:32.000000000 +0900
+@@ -17,7 +17,7 @@
+ #include "pmlist.h"
+ 
+ // Global variables
+-struct GLOBALS g_vars;
++globals g_vars;
+ 
+ int main (int argc, char** argv)
+ {
+@@ -114,9 +114,9 @@
+ 
+ 	// Initialize UPnP SDK on the internal Interface
+ 	trace(3, "Initializing UPnP SDK ... ");
+-	if ( (ret = UpnpInit(intIpAddress,0) ) != UPNP_E_SUCCESS)
++	if ( (ret = UpnpInit(intIpAddress,g_vars.listenport) ) != UPNP_E_SUCCESS)
+ 	{
+-		syslog (LOG_ERR, "Error Initializing UPnP SDK on IP %s ",intIpAddress);
++		syslog (LOG_ERR, "Error Initializing UPnP SDK on IP %s port %d",intIpAddress,g_vars.listenport);
+ 		syslog (LOG_ERR, "  UpnpInit returned %d", ret);
+ 		UpnpFinish();
+ 		exit(1);
+diff -uNr linuxigd-1.0/pmlist.c linuxigd-1.0-patch/pmlist.c
+--- linuxigd-1.0/pmlist.c	2006-10-02 00:58:32.000000000 +0900
++++ linuxigd-1.0-patch/pmlist.c	2008-01-18 03:31:32.000000000 +0900
+@@ -233,6 +233,9 @@
+ {
+     if (enabled)
+     {
++      char dest[DEST_LEN];
++      snprintf(dest, DEST_LEN, "%s:%s", internalClient, internalPort);
++
+ #if HAVE_LIBIPTC
+ 	char *buffer = malloc(strlen(internalClient) + strlen(internalPort) + 2);
+ 	if (buffer == NULL) {
+@@ -240,26 +243,25 @@
+ 		return 0;
+ 	}
+ 
+-	strcpy(buffer, internalClient);
+-	strcat(buffer, ":");
+-	strcat(buffer, internalPort);
+-
+-	if (g_vars.forwardRules)
+-		iptc_add_rule("filter", g_vars.forwardChainName, protocol, NULL, NULL, NULL, internalClient, NULL, internalPort, "ACCEPT", NULL, FALSE);
+-
+-	iptc_add_rule("nat", g_vars.preroutingChainName, protocol, g_vars.extInterfaceName, NULL, NULL, NULL, NULL, externalPort, "DNAT", buffer, TRUE);
+-	free(buffer);
++	if (g_vars.createForwardRules)
++	{
++	  trace(3, "iptc_add_rule %s %s %s %s %s %s %s",
++		"filter", g_vars.forwardChainName, protocol, internalClient, internalPort, "ACCEPT",
++		g_vars.forwardRulesAppend ? "APPEND" : "INSERT");
++	  iptc_add_rule("filter", g_vars.forwardChainName, protocol, NULL, NULL, NULL, internalClient, NULL, internalPort, "ACCEPT", NULL, g_vars.forwardRulesAppend ? TRUE : FALSE);
++	}
++	trace(3, "iptc_add_rule %s %s %s %s %s %s %s %s",
++	      "nat", g_vars.preroutingChainName, protocol, g_vars.extInterfaceName, externalPort, "DNAT", dest, "APPEND");
++	iptc_add_rule("nat", g_vars.preroutingChainName, protocol, g_vars.extInterfaceName, NULL, NULL, NULL, NULL, externalPort, "DNAT", dest, TRUE);
+ #else
+-	char command[COMMAND_LEN];
+ 	int status;
+ 	
++	if (g_vars.createForwardRules)
+ 	{
+-	  char dest[DEST_LEN];
+-	  char *args[] = {"iptables", "-t", "nat", "-I", g_vars.preroutingChainName, "-i", g_vars.extInterfaceName, "-p", protocol, "--dport", externalPort, "-j", "DNAT", "--to", dest, NULL};
+-
+-	  snprintf(dest, DEST_LEN, "%s:%s", internalClient, internalPort);
+-	  snprintf(command, COMMAND_LEN, "%s -t nat -I %s -i %s -p %s --dport %s -j DNAT --to %s:%s", g_vars.iptables, g_vars.preroutingChainName, g_vars.extInterfaceName, protocol, externalPort, internalClient, internalPort);
+-	  trace(3, "%s", command);
++	  char *args[] = {g_vars.iptables, g_vars.forwardRulesAppend ? "-A" : "-I", g_vars.forwardChainName, "-p", protocol, "-d", internalClient, "--dport", internalPort, "-j", "ACCEPT", NULL};
++	  
++	  trace(3, "%s %s %s -p %s -d %s --dport %s -j ACCEPT", 
++		g_vars.iptables,g_vars.forwardRulesAppend ? "-A" : "-I",g_vars.forwardChainName, protocol, internalClient, internalPort);
+ 	  if (!fork()) {
+ 	    int rc = execv(g_vars.iptables, args);
+ 	    exit(rc);
+@@ -268,12 +270,11 @@
+ 	  }
+ 	}
+ 
+-	if (g_vars.forwardRules)
+ 	{
+-	  char *args[] = {"iptables", "-A", g_vars.forwardChainName, "-p", protocol, "-d", internalClient, "--dport", internalPort, "-j", "ACCEPT", NULL};
+-	  
+-	  snprintf(command, COMMAND_LEN, "%s -A %s -p %s -d %s --dport %s -j ACCEPT", g_vars.iptables,g_vars.forwardChainName, protocol, internalClient, internalPort);
+-	  trace(3, "%s", command);
++	  char *args[] = {g_vars.iptables, "-t", "nat", "-A", g_vars.preroutingChainName, "-i", g_vars.extInterfaceName, "-p", protocol, "--dport", externalPort, "-j", "DNAT", "--to", dest, NULL};
++
++	  trace(3, "%s -t nat -A %s -i %s -p %s --dport %s -j DNAT --to %s", 
++		g_vars.iptables, g_vars.preroutingChainName, g_vars.extInterfaceName, protocol, externalPort, dest);
+ 	  if (!fork()) {
+ 	    int rc = execv(g_vars.iptables, args);
+ 	    exit(rc);
+@@ -290,29 +291,27 @@
+ {
+     if (enabled)
+     {
+-#if HAVE_LIBIPTC
+-	char *buffer = malloc(strlen(internalClient) + strlen(internalPort) + 2);
+-	strcpy(buffer, internalClient);
+-	strcat(buffer, ":");
+-	strcat(buffer, internalPort);
+-
+-	if (g_vars.forwardRules)
+-	    iptc_delete_rule("filter", g_vars.forwardChainName, protocol, NULL, NULL, NULL, internalClient, NULL, internalPort, "ACCEPT", NULL);
++      char dest[DEST_LEN];
++      snprintf(dest, DEST_LEN, "%s:%s", internalClient, internalPort);
+ 
+-	iptc_delete_rule("nat", g_vars.preroutingChainName, protocol, g_vars.extInterfaceName, NULL, NULL, NULL, NULL, externalPort, "DNAT", buffer);
+-	free(buffer);
++#if HAVE_LIBIPTC
++	trace(3, "iptc_delete_rule %s %s %s %s %s %s %s",
++	      "nat", g_vars.preroutingChainName, protocol, g_vars.extInterfaceName, externalPort, "DNAT", dest);
++	iptc_delete_rule("nat", g_vars.preroutingChainName, protocol, g_vars.extInterfaceName, NULL, NULL, NULL, NULL, externalPort, "DNAT", dest);
++	if (g_vars.createForwardRules)
++	{
++	  trace(3, "iptc_delete_rule %s %s %s %s %s %s",
++		"filter", g_vars.forwardChainName, protocol, internalClient, internalPort, "ACCEPT");
++	  iptc_delete_rule("filter", g_vars.forwardChainName, protocol, NULL, NULL, NULL, internalClient, NULL, internalPort, "ACCEPT", NULL);
++	}
+ #else
+-	char command[COMMAND_LEN];
+ 	int status;
+ 	
+ 	{
+-	  char dest[DEST_LEN];
+-	  char *args[] = {"iptables", "-t", "nat", "-D", g_vars.preroutingChainName, "-i", g_vars.extInterfaceName, "-p", protocol, "--dport", externalPort, "-j", "DNAT", "--to", dest, NULL};
++	  char *args[] = {g_vars.iptables, "-t", "nat", "-D", g_vars.preroutingChainName, "-i", g_vars.extInterfaceName, "-p", protocol, "--dport", externalPort, "-j", "DNAT", "--to", dest, NULL};
+ 
+-	  snprintf(dest, DEST_LEN, "%s:%s", internalClient, internalPort);
+-	  snprintf(command, COMMAND_LEN, "%s -t nat -D %s -i %s -p %s --dport %s -j DNAT --to %s:%s",
+-		  g_vars.iptables, g_vars.preroutingChainName, g_vars.extInterfaceName, protocol, externalPort, internalClient, internalPort);
+-	  trace(3, "%s", command);
++	  trace(3, "%s -t nat -D %s -i %s -p %s --dport %s -j DNAT --to %s",
++		g_vars.iptables, g_vars.preroutingChainName, g_vars.extInterfaceName, protocol, externalPort, dest);
+ 	  
+ 	  if (!fork()) {
+ 	    int rc = execv(g_vars.iptables, args);
+@@ -322,12 +321,12 @@
+ 	  }
+ 	}
+ 
+-	if (g_vars.forwardRules)
++	if (g_vars.createForwardRules)
+ 	{
+-	  char *args[] = {"iptables", "-D", g_vars.forwardChainName, "-p", protocol, "-d", internalClient, "--dport", internalPort, "-j", "ACCEPT", NULL};
++	  char *args[] = {g_vars.iptables, "-D", g_vars.forwardChainName, "-p", protocol, "-d", internalClient, "--dport", internalPort, "-j", "ACCEPT", NULL};
+ 	  
+-	  snprintf(command, COMMAND_LEN, "%s -D %s -p %s -d %s --dport %s -j ACCEPT", g_vars.iptables, g_vars.forwardChainName, protocol, internalClient, internalPort);
+-	  trace(3, "%s", command);
++	  trace(3, "%s -D %s -p %s -d %s --dport %s -j ACCEPT",
++		g_vars.iptables, g_vars.forwardChainName, protocol, internalClient, internalPort);
+ 	  if (!fork()) {
+ 	    int rc = execv(g_vars.iptables, args);
+ 	    exit(rc);
+diff -uNr linuxigd-1.0/pmlist.h linuxigd-1.0-patch/pmlist.h
+--- linuxigd-1.0/pmlist.h	2006-10-02 00:58:32.000000000 +0900
++++ linuxigd-1.0-patch/pmlist.h	2008-01-18 03:31:32.000000000 +0900
+@@ -1,7 +1,6 @@
+ #ifndef _PMLIST_H_
+-	#define _PMLIST_H_
++#define _PMLIST_H_
+ 
+-#define COMMAND_LEN 500
+ #define DEST_LEN 100
+ 
+ typedef struct ExpirationEvent {

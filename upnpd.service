@@ -1,0 +1,12 @@
+[Unit]
+Description=UPnP Internet Gateway Device
+After=network.target
+
+[Service]
+EnvironmentFile=-/etc/sysconfig/upnpd
+#ExecStartPre=/usr/sbin/route add -net 239.0.0.0 netmask 255.0.0.0 $INTIFACE
+ExecStart=/usr/sbin/upnpd -f $EXTIFACE $INTIFACE
+#ExecStopPost=/usr/sbin/route del -net 239.0.0.0 netmask 255.0.0.0 $INTIFACE
+
+[Install]
+WantedBy=multi-user.target

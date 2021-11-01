@@ -1,0 +1,41 @@
+diff -uNr linuxigd-1.0/Makefile linuxigd-1.0-patch/Makefile
+--- linuxigd-1.0/Makefile	2006-05-24 07:16:36.000000000 +0900
++++ linuxigd-1.0-patch/Makefile	2007-10-31 02:39:30.000000000 +0900
+@@ -33,11 +33,17 @@
+ 	rm -f *.o upnpd
+ 
+ install: upnpd
+-	install -d /etc/linuxigd
+-	install etc/gatedesc.xml /etc/linuxigd
+-	install etc/gateconnSCPD.xml  /etc/linuxigd
+-	install etc/gateicfgSCPD.xml /etc/linuxigd
+-	install etc/dummy.xml /etc/linuxigd
+-	install upnpd $(PREFIX)/sbin
+-	install upnpd.8 $(PREFIX)/share/man/man8
+-	if [ ! -f /etc/upnpd.conf ]; then install etc/upnpd.conf /etc; fi
++	install -d $(DESTDIR)/etc/init.d/
++	install -d $(DESTDIR)/etc/linuxigd/
++	install -d $(DESTDIR)/etc/sysconfig/
++	install -d $(DESTDIR)/usr/sbin/
++	install -d $(DESTDIR)/usr/share/man/man8/
++	install etc/gatedesc.xml $(DESTDIR)/etc/linuxigd
++	install etc/gateconnSCPD.xml  $(DESTDIR)/etc/linuxigd
++	install etc/gateicfgSCPD.xml $(DESTDIR)/etc/linuxigd
++	install etc/dummy.xml $(DESTDIR)/etc/linuxigd
++	install etc/upnpd.conf $(DESTDIR)/etc
++	install upnpd $(DESTDIR)/usr/sbin
++	install upnpd.8 $(DESTDIR)/usr/share/man/man8
++	install -D etc/upnpd.rc $(DESTDIR)/etc/rc.d/init.d/upnpd
++	install -D etc/upnpd.rc.conf $(DESTDIR)/etc/sysconfig/upnpd
+diff -uNr linuxigd-1.0/etc/upnpd.rc linuxigd-1.0-patch/etc/upnpd.rc
+--- linuxigd-1.0/etc/upnpd.rc   2006-08-16 08:34:56.000000000 +0900
++++ linuxigd-1.0-patch/etc/upnpd.rc     2007-12-24 23:19:07.000000000 +0900
+@@ -4,7 +4,7 @@
+ #
+ # Starts the upnpd daemon
+ #
+-# chkconfig: 345 95 5
++# chkconfig: - 95 5
+ # description: Internet Gateway Device
+ # processname: upnpd
+ 

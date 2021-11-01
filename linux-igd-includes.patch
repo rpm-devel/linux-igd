@@ -1,0 +1,9 @@
+diff -up linux-igd/linuxigd-1.0/gatedevice.c.jx linux-igd/linuxigd-1.0/gatedevice.c
+--- linux-igd/linuxigd-1.0/gatedevice.c.jx	2007-02-07 18:07:27.000000000 -0500
++++ linux-igd/linuxigd-1.0/gatedevice.c	2011-05-31 13:05:25.813381420 -0400
+@@ -1,4 +1,5 @@
+ #include <syslog.h>
++#include <stdio.h>
+ #include <stdlib.h>
+ #include <upnp/ixml.h>
+ #include <string.h>
