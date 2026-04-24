@@ -13,19 +13,21 @@ Patch0: %{name}-%{version}-to-cvs20070630.patch
 Patch2: %{source_name}-%{version}-restrict-internal-interface.patch
 Patch3: linux-igd-includes.patch
 
+%if 0%{?rhel} >= 8 || 0%{?fedora}
+BuildRequires: systemd-rpm-macros
+%else
 BuildRequires: systemd
+%endif
 BuildRequires: libupnp-devel
 
-Requires(post): systemd
-Requires(preun): systemd
-Requires(postun): systemd
+%{?systemd_requires}
 
 
 %description
 This is a daemon that emulates Microsoft's Internet Connection Service (ICS).
-It implements the UPnP Internet Gateway Device specification (IGD) and allows 
+It implements the UPnP Internet Gateway Device specification (IGD) and allows
 UPnP aware clients, such as MSN Messenger to work properly from behind
- a Linux NAT firewall.
+a Linux NAT firewall.
 
 
 %prep
@@ -43,7 +45,6 @@ popd
 
 
 %install
-rm -rf %{buildroot}
 pushd %{source_name}-%{version}
 make DESTDIR=%{buildroot} install
 iconv -f latin1 -t utf8 CHANGES > ../CHANGES
@@ -53,10 +54,6 @@ popd
 
 rm -rf %{buildroot}%{_initrddir}
 install -D -m 644 %{SOURCE1} %{buildroot}%{_unitdir}/upnpd.service
-
-
-%clean
-rm -rf %{buildroot}
 
 
 %files
@@ -84,6 +81,9 @@ rm -rf %{buildroot}
 
 
 %changelog
+* Fri Apr 24 2026 CasjaysDev <rpm-devel@casjaysdev.pro> - 1.0-24
+- Modernize spec for AlmaLinux 10; remove %clean section
+
 * Thu Aug 03 2017 Fedora Release Engineering <releng@fedoraproject.org> - 1.0-24
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_27_Binutils_Mass_Rebuild
 
@@ -133,7 +133,7 @@ rm -rf %{buildroot}
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_11_Mass_Rebuild
 
 * Mon Aug 4 2008 Masahiro Hasegawa <masahase@gmail.com> - 1.0-7
-- Fix Bug #457730 
+- Fix Bug #457730
 
 * Sat May 17 2008 Masahiro Hasegawa <masahase@gmail.com> - 1.0-6
 - Fix dependencies
@@ -164,4 +164,3 @@ rm -rf %{buildroot}
 * Sun Sep 26 2004 Watanabe Keiji <k@elt.ne.jp>
 - Version 0.99 Release ELT1
 - first build for version 0.92 (CVS Version on Sep 25, 2004.)
-
