@@ -4,20 +4,18 @@ Name: linux-igd
 Summary: The Linux UPNP Internet GATEWAY DEVICE
 Version: 1.0
 Release: 24%{?dist}
-License: GPL+
-URL: http://linux-igd.sourceforge.net/index.php
-Source0: http://downloads.sourceforge.net/%{name}/%{source_name}-%{version}.tar.gz
+License: GPL-2.0-or-later
+# Upstream is abandoned (last release 2007); SourceForge downloads return 404; no local tarball available
+URL: https://linux-igd.sourceforge.net/index.php
+ExclusiveArch: x86_64 aarch64
+Source0: https://downloads.sourceforge.net/project/%{name}/%{source_name}-%{version}.tar.gz
 Source1: upnpd.service
 Patch1: %{source_name}-%{version}.patch
 Patch0: %{name}-%{version}-to-cvs20070630.patch
 Patch2: %{source_name}-%{version}-restrict-internal-interface.patch
 Patch3: linux-igd-includes.patch
 
-%if 0%{?rhel} >= 8 || 0%{?fedora}
 BuildRequires: systemd-rpm-macros
-%else
-BuildRequires: systemd
-%endif
 BuildRequires: libupnp-devel
 
 %{?systemd_requires}
@@ -40,13 +38,13 @@ a Linux NAT firewall.
 
 %build
 pushd %{source_name}-%{version}
-make CFLAGS="$RPM_OPT_FLAGS" %{?_smp_mflags}
+%make_build CFLAGS="$RPM_OPT_FLAGS"
 popd
 
 
 %install
 pushd %{source_name}-%{version}
-make DESTDIR=%{buildroot} install
+%make_install
 iconv -f latin1 -t utf8 CHANGES > ../CHANGES
 iconv -f latin1 -t utf8 TODO > ../TODO
 cp LICENSE ../
@@ -81,6 +79,12 @@ install -D -m 644 %{SOURCE1} %{buildroot}%{_unitdir}/upnpd.service
 
 
 %changelog
+* Sat Jul 04 2026 CasjaysDev <rpm-devel@casjaysdev.pro> - 1.0-24
+- Source0: http→https; dead upstream (2007), SourceForge 404, no local tarball
+- URL: http→https; drop RHEL8 conditional; always BuildRequires: systemd-rpm-macros
+- SPDX: GPL+ → GPL-2.0-or-later; add ExclusiveArch: x86_64 aarch64
+- %%make_build, %%make_install
+
 * Fri Apr 24 2026 CasjaysDev <rpm-devel@casjaysdev.pro> - 1.0-24
 - Modernize spec for AlmaLinux 10; remove %clean section
 
