@@ -8,7 +8,7 @@ License: GPL-2.0-or-later
 # Upstream is abandoned (last release 2007); SourceForge downloads return 404; no local tarball available
 URL: https://linux-igd.sourceforge.net/index.php
 ExclusiveArch: x86_64 aarch64
-Source0: https://downloads.sourceforge.net/project/%{name}/%{source_name}-%{version}.tar.gz
+Source0: https://downloads.sourceforge.net/project/%{name}/%{name}/%{source_name}-%{version}/%{source_name}-%{version}.tar.gz
 Source1: upnpd.service
 Patch1: %{source_name}-%{version}.patch
 Patch0: %{name}-%{version}-to-cvs20070630.patch
